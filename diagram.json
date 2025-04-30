@@ -1,8 +1,35 @@
 {
   "version": 1,
-  "author": "M.rabyndra janitra Binello",
+  "author": "Uri Shaked",
   "editor": "wokwi",
-  "parts": [ { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 0, "left": 0, "attrs": {} } ],
-  "connections": [ [ "esp:TX", "$serialMonitor:RX", "", [] ], [ "esp:RX", "$serialMonitor:TX", "", [] ] ],
+  "parts": [
+    { "type": "wokwi-esp32-devkit-v1", "id": "esp", "top": 9.33, "left": -74.67, "attrs": {} },
+    { "type": "wokwi-dht22", "id": "dht1", "top": -6.2, "left": 188.83, "attrs": {} },
+    {
+      "type": "wokwi-led",
+      "id": "led1",
+      "top": -68.94,
+      "left": 75,
+      "attrs": { "color": "white" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led2",
+      "top": -69.6,
+      "left": 107.8,
+      "attrs": { "color": "red" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX0", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX0", "$serialMonitor:TX", "", [] ],
+    [ "dht1:SDA", "esp:D15", "white", [ "v0" ] ],
+    [ "dht1:GND", "esp:GND.1", "black", [ "v0" ] ],
+    [ "dht1:VCC", "esp:VIN", "red", [ "v0" ] ],
+    [ "led1:C", "esp:GND.2", "black", [ "v0" ] ],
+    [ "led1:A", "esp:D23", "yellow", [ "v0" ] ],
+    [ "led2:C", "esp:GND.2", "black", [ "v0" ] ],
+    [ "led2:A", "esp:D22", "red", [ "v0" ] ]
+  ],
   "dependencies": {}
 }
