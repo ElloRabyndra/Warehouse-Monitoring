@@ -1,8 +1,3 @@
-/*
-  Program : SISTEM PEMANTAUAN SUHU DAN KELEMBABAN BERBASIS INTERNET OF THINGS UNTUK OPTIMALISASI PENYIMPANAN GUDANG
-  Oleh    : Kelompok 7
-*/
-
 #include <Arduino.h> 
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -15,10 +10,10 @@ const char* password = "";
 
 // Telegram BOT
 #define BOTtoken "7786397106:AAGWVzRzKrt8ZgHTvnek1ouKk6NkrywxLCw"
-#define CHAT_ID "1490623065"
+#define CHAT_ID "1380948390"
 
-#define pin_merah 22 
-#define pin_putih 23  
+#define pin_merah 22  // LED merah sebagai representasi kipas
+#define pin_putih 23  // LED putih sebagai representasi sirine
 #define DHT_PIN 15
 
 #define NTP_SERVER "pool.ntp.org"
@@ -52,7 +47,7 @@ void BacaTelegram();
 void aturStatusOtomatis();
 void handleNewMessages(int numNewMessages);
 void kipasControl(bool isOn);
-void gudangStatusControl(bool isNormal);
+void sirineControl(bool isOn);
 void checkSuhuKelembaban();
 
 void setup() {
@@ -60,9 +55,9 @@ void setup() {
   pinMode(pin_merah, OUTPUT);
   pinMode(pin_putih, OUTPUT);
 
-  // Nyalakan LED putih saat program dijalankan
-  gudangStatusControl(true);
-  kipasControl(false);
+  // Matikan LED saat program dijalankan
+  digitalWrite(pin_merah, LOW);
+  digitalWrite(pin_putih, LOW);
   
   // Serial monitor
   Serial.begin(115200);
@@ -114,7 +109,7 @@ void loop() {
   // Kirim update reguler ke Telegram
   if(t - KirimTerakhir >= WAKTU_KIRIM) {
     KirimTerakhir = t;
-    Serial.print(Waktu()); Serial.println(" Kirim Telegram");
+    Serial.print(Waktu()); Serial.println("Mengirim Pesan Ke Telegram");
     KirimTelegram();
     sudahKirimAlert = false;
   }  
@@ -128,15 +123,17 @@ void aturStatusOtomatis() {
     kondisiKritis = kondisiBaru;
     
     if (kondisiKritis) {
-      // Kondisi kritis: Kipas ON (LED merah), status gudang tidak normal (LED putih mati)
-      kipasControl(true); // Nyalakan kipas
-      gudangStatusControl(false); // Tandai gudang kritis
-      Serial.println("Kondisi kritis terdeteksi! Kipas ON");
+      // Kondisi kritis: Nyalakan kipas (LED merah) dan sirine (LED putih)
+      kipasControl(true);   // Nyalakan kipas
+      sirineControl(true);  // Nyalakan sirine
+      status_gudang_normal = false;
+      Serial.println("Kondisi kritis terdeteksi! Kipas ON, Sirine ON");
     } else {
-      // Kondisi normal: Kipas OFF, status gudang normal (LED putih nyala)
-      kipasControl(false); // Matikan kipas
-      gudangStatusControl(true); // Tandai gudang normal
-      Serial.println("Kondisi normal! Kipas OFF");
+      // Kondisi normal: Kipas OFF, sirine OFF
+      kipasControl(false);  // Matikan kipas
+      sirineControl(false); // Matikan sirine
+      status_gudang_normal = true;
+      Serial.println("Kondisi normal! Kipas OFF, Sirine OFF");
     }
   }
 }
@@ -163,7 +160,7 @@ void checkSuhuKelembaban() {
       String alertMsg = "⚠️ PERINGATAN: Suhu gudang terlalu tinggi!⚠️\n" + Waktu() + 
                       "\nSuhu saat ini: " + String(Suhu) + "°C" +
                       "\nAmbang batas: " + String(SUHU_KRITIS) + "°C" +
-                      "\nKipas telah dinyalakan secara otomatis!";
+                      "\nKipas dan sirine telah dinyalakan secara otomatis!";
       KirimAlert(alertMsg);
     }
     else if (Kelembaban <= KELEMBABAN_KRITIS) {
@@ -171,7 +168,7 @@ void checkSuhuKelembaban() {
       String alertMsg = "⚠️ PERINGATAN: Kelembaban gudang terlalu rendah!⚠️\n" + Waktu() + 
                       "\nKelembaban saat ini: " + String(Kelembaban) + "%" +
                       "\nAmbang batas: " + String(KELEMBABAN_KRITIS) + "%" +
-                      "\nKipas telah dinyalakan secara otomatis!";
+                      "\nKipas dan sirine telah dinyalakan secara otomatis!";
       KirimAlert(alertMsg);
     }
   }
@@ -192,6 +189,7 @@ void KirimTelegram() {
   msg += "\nKelembaban: " + String(Kelembaban) + "%";
   msg += "\nStatus Gudang: " + String(status_gudang_normal ? "Normal" : "⚠️Kritis⚠️");
   msg += "\nStatus Kipas: " + String(status_kipas ? "ON" : "OFF");
+  msg += "\nStatus Sirine: " + String(digitalRead(pin_putih) == HIGH ? "ON" : "OFF");
   Serial.println(msg);
   bot.sendMessage(CHAT_ID, msg, "");
 }
@@ -226,7 +224,7 @@ void handleNewMessages(int numNewMessages) {
 
     if (text == "/menu") {
       String welcome = "Selamat Datang, " + from_name + ".\n";
-      welcome += "Berikut list command untuk kontrol:\n\n";
+      welcome += "Berikut list command untuk kontrol:\n";
       welcome += "/cek_ambang - untuk melihat ambang batas kritis\n";
       bot.sendMessage(chat_id, welcome, "");
     }
@@ -252,13 +250,11 @@ void kipasControl(bool isOn) {
   }
 }
 
-// Fungsi untuk mengontrol status gudang (LED putih)
-void gudangStatusControl(bool isNormal) {
-  status_gudang_normal = isNormal;
-  // Update status LED putih sesuai dengan status gudang
-  if (isNormal) {
-    digitalWrite(pin_putih, HIGH);  // LED putih nyala saat gudang normal
+// Fungsi untuk mengontrol sirine (LED putih)
+void sirineControl(bool isOn) {
+  if (isOn) {
+    digitalWrite(pin_putih, HIGH);  // LED putih nyala saat kondisi kritis (sebagai sirine)
   } else {
-    digitalWrite(pin_putih, LOW);   // LED putih mati saat gudang kritis
+    digitalWrite(pin_putih, LOW);   // LED putih mati saat kondisi normal
   }
 }
