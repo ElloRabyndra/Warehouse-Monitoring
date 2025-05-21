@@ -5,13 +5,7 @@
   "parts": [
     { "type": "wokwi-esp32-devkit-v1", "id": "esp", "top": 9.33, "left": -74.67, "attrs": {} },
     { "type": "wokwi-dht22", "id": "dht1", "top": -38.1, "left": -207, "attrs": {} },
-    {
-      "type": "wokwi-led",
-      "id": "led1",
-      "top": -68.94,
-      "left": 75,
-      "attrs": { "color": "white" }
-    },
+    { "type": "wokwi-led", "id": "led1", "top": -70.8, "left": 71, "attrs": { "color": "white" } },
     {
       "type": "wokwi-led",
       "id": "led2",
@@ -26,9 +20,9 @@
     [ "dht1:SDA", "esp:D15", "white", [ "v38.4", "h67.3", "v-134.4", "h163", "v168.03" ] ],
     [ "dht1:GND", "esp:GND.1", "limegreen", [ "v0" ] ],
     [ "dht1:VCC", "esp:VIN", "red", [ "v0" ] ],
-    [ "led1:C", "esp:GND.2", "magenta", [ "v0" ] ],
+    [ "led1:C", "esp:GND.2", "purple", [ "v0" ] ],
     [ "led1:A", "esp:D23", "yellow", [ "v0" ] ],
-    [ "led2:C", "esp:GND.2", "magenta", [ "v258", "h-190", "v-72.07" ] ],
+    [ "led2:C", "esp:GND.2", "purple", [ "v258", "h-190", "v-72.07" ] ],
     [ "led2:A", "esp:D22", "red", [ "v0" ] ]
   ],
   "dependencies": {}
