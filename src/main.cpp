@@ -3,6 +3,8 @@
 #include <WiFiClientSecure.h>
 #include <UniversalTelegramBot.h>
 #include "DHTesp.h"
+#include <ESPAsyncWebServer.h>
+#include <ArduinoJson.h>
 
 // SSID dan Password WiFi
 const char* ssid = "Wokwi-GUEST";
@@ -12,32 +14,32 @@ const char* password = "";
 #define BOTtoken "7786397106:AAGWVzRzKrt8ZgHTvnek1ouKk6NkrywxLCw"
 #define CHAT_ID "1380948390"
 
-#define pin_merah 22  // LED merah sebagai representasi kipas
-#define pin_putih 23  // LED putih sebagai representasi sirine
+#define pin_merah 22
+#define pin_putih 23
 #define DHT_PIN 15
 
 #define NTP_SERVER "pool.ntp.org"
-#define UTC_OFFSET 7*3600    // WIB +7
+#define UTC_OFFSET 7*3600
 #define UTC_OFFSET_DST  0
 
 #define WAKTU_KIRIM 30000 
 #define WAKTU_BACA 1000 
 
-// Ambang batas suhu dan kelembaban
-#define SUHU_KRITIS 35.0 // °C
-#define KELEMBABAN_KRITIS 40.0 // %
+#define SUHU_KRITIS 35.0
+#define KELEMBABAN_KRITIS 40.0
 
 float Suhu = 24.6;
 float Kelembaban = 60.72;
-bool sudahKirimAlert = false; // Flag untuk menghindari pengiriman notifikasi berulang
+bool sudahKirimAlert = false;
 bool status_kipas = false;  
 bool status_gudang_normal = true;  
-bool kondisiKritis = false;  // Flag untuk status kondisi kritis
+bool kondisiKritis = false;
 
 WiFiClientSecure client;
 UniversalTelegramBot bot(BOTtoken, client);
 
 DHTesp dhtSensor;
+AsyncWebServer server(80);
 
 String Format(int Data);
 String Waktu();
@@ -50,20 +52,23 @@ void kipasControl(bool isOn);
 void sirineControl(bool isOn);
 void checkSuhuKelembaban();
 
+// Fungsi untuk menambahkan header CORS ke semua respons
+void addCORSHeaders(AsyncWebServerResponse *response) {
+  response->addHeader("Access-Control-Allow-Origin", "http://localhost:5173");
+  response->addHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  response->addHeader("Access-Control-Allow-Headers", "Content-Type");
+}
+
 void setup() {
-  // atur mode pin menjadi output
   pinMode(pin_merah, OUTPUT);
   pinMode(pin_putih, OUTPUT);
 
-  // Matikan LED saat program dijalankan
   digitalWrite(pin_merah, LOW);
   digitalWrite(pin_putih, LOW);
   
-  // Serial monitor
   Serial.begin(115200);
   dhtSensor.setup(DHT_PIN, DHTesp::DHT22);
  
-  // Hubungkan ke Wi-Fi
   WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   client.setCACert(TELEGRAM_CERTIFICATE_ROOT);
@@ -73,14 +78,78 @@ void setup() {
     Serial.println("Sedang menghubungkan ke WiFi..");
   }
   
-  // IP Address
   Serial.println(WiFi.localIP());
   Serial.println("Sinkronisasi Waktu di Internet :");
   configTime(UTC_OFFSET, UTC_OFFSET_DST, NTP_SERVER);
   
-  // Kirim pesan awal ke Telegram bahwa sistem telah dimulai
   String pesanAwal = "Sistem monitoring gudang telah dimulai! \nKetik /menu untuk melihat command\n" + Waktu();
   bot.sendMessage(CHAT_ID, pesanAwal, "");
+
+  // ===================================
+  // ENDPOINT SERVER WEB UNTUK DASHBOARD
+  // ===================================
+
+  // Penanganan untuk preflight OPTIONS request
+  server.on("/", HTTP_OPTIONS, [](AsyncWebServerRequest *request){
+    AsyncWebServerResponse *response = request->beginResponse(204); // 204 No Content
+    addCORSHeaders(response);
+    request->send(response);
+  });
+  server.on("/api/ping", HTTP_OPTIONS, [](AsyncWebServerRequest *request){
+    AsyncWebServerResponse *response = request->beginResponse(204);
+    addCORSHeaders(response);
+    request->send(response);
+  });
+  server.on("/api/status", HTTP_OPTIONS, [](AsyncWebServerRequest *request){
+    AsyncWebServerResponse *response = request->beginResponse(204);
+    addCORSHeaders(response);
+    request->send(response);
+  });
+  server.on("/api/command", HTTP_OPTIONS, [](AsyncWebServerRequest *request){
+    AsyncWebServerResponse *response = request->beginResponse(204);
+    addCORSHeaders(response);
+    request->send(response);
+  });
+
+  // Endpoint untuk koneksi (ping)
+  server.on("/api/ping", HTTP_GET, [](AsyncWebServerRequest *request) {
+    AsyncWebServerResponse *response = request->beginResponse(200, "text/plain", "OK");
+    addCORSHeaders(response);
+    request->send(response);
+  });
+
+  // Endpoint untuk data status
+  server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+    DynamicJsonDocument doc(128);
+    doc["temperature"] = Suhu;
+    doc["humidity"] = Kelembaban;
+    doc["isWarehouseNormal"] = status_gudang_normal;
+    doc["fanStatus"] = status_kipas;
+    doc["sirenStatus"] = (digitalRead(pin_putih) == HIGH);
+
+    String jsonResponse;
+    serializeJson(doc, jsonResponse);
+    
+    AsyncWebServerResponse *response = request->beginResponse(200, "application/json", jsonResponse);
+    addCORSHeaders(response);
+    request->send(response);
+  });
+  
+  // Endpoint untuk mengirim command
+  server.on("/api/command", HTTP_POST, [](AsyncWebServerRequest *request){
+    // Penanganan preflight request (OPTIONS) sudah ada di atas
+    if (request->hasParam("command", true)) {
+      String command = request->getParam("command", true)->value();
+      if (command == "kipas_on") {
+        kipasControl(true);
+        request->send(200, "application/json", "{\"status\":\"success\",\"message\":\"Kipas dinyalakan\"}");
+      }
+    } else {
+      request->send(400, "application/json", "{\"status\":\"error\",\"message\":\"Command tidak ditemukan\"}");
+    }
+  });
+
+  server.begin();
 }
 
 void loop() {
@@ -89,33 +158,29 @@ void loop() {
   static unsigned long CekTerakhir = 0;
   unsigned long t = millis();
   
-  // Baca pesan Telegram
   if(t - BacaTerakhir >= WAKTU_BACA) {
     BacaTerakhir = t;
     Serial.print(Waktu()); Serial.println("\nStatus: Refresh Telegram");
     BacaTelegram();
   }
   
-  // Cek suhu dan kelembaban
-  if(t - CekTerakhir >= 5000) {  // Cek setiap 5 detik
+  if(t - CekTerakhir >= 5000) {
     CekTerakhir = t;
     TempAndHumidity data = dhtSensor.getTempAndHumidity();
     Suhu = data.temperature;
     Kelembaban = data.humidity;
     checkSuhuKelembaban();
-    aturStatusOtomatis();  // Atur status secara otomatis berdasarkan kondisi
+    aturStatusOtomatis();
   }
   
-  // Kirim update reguler ke Telegram
   if(t - KirimTerakhir >= WAKTU_KIRIM) {
     KirimTerakhir = t;
     Serial.print(Waktu()); Serial.println("Mengirim Pesan Ke Telegram");
     KirimTelegram();
     sudahKirimAlert = false;
-  }  
+  }
 }
 
-// Fungsi untuk mengatur status berdasarkan kondisi suhu dan kelembaban
 void aturStatusOtomatis() {
   bool kondisiBaru = (Suhu >= SUHU_KRITIS || Kelembaban <= KELEMBABAN_KRITIS);
   
@@ -123,15 +188,13 @@ void aturStatusOtomatis() {
     kondisiKritis = kondisiBaru;
     
     if (kondisiKritis) {
-      // Kondisi kritis: Nyalakan kipas (LED merah) dan sirine (LED putih)
-      kipasControl(true);   // Nyalakan kipas
-      sirineControl(true);  // Nyalakan sirine
+      kipasControl(true);
+      sirineControl(true);
       status_gudang_normal = false;
       Serial.println("Kondisi kritis terdeteksi! Kipas ON, Sirine ON");
     } else {
-      // Kondisi normal: Kipas OFF, sirine OFF
-      kipasControl(false);  // Matikan kipas
-      sirineControl(false); // Matikan sirine
+      kipasControl(false);
+      sirineControl(false);
       status_gudang_normal = true;
       Serial.println("Kondisi normal! Kipas OFF, Sirine OFF");
     }
@@ -147,12 +210,10 @@ String Waktu() {
   struct tm w;
   if (!getLocalTime(&w))
     return "Sinkronisasi waktu gagal, Mengsinkronisasi ulang.....";
-
-    return "Waktu: " + Format(w.tm_hour) + ":" + Format(w.tm_min) + ":" + Format(w.tm_sec) + " " +
+  return "Waktu: " + Format(w.tm_hour) + ":" + Format(w.tm_min) + ":" + Format(w.tm_sec) + " " +
     "\nTanggal: " + String(w.tm_mday) + "-" + String(w.tm_mon + 1) + "-" + String(w.tm_year + 1900);
 }
 
-// Fungsi untuk memeriksa suhu dan kelembaban
 void checkSuhuKelembaban() {
   if (!sudahKirimAlert) {
     if (Suhu >= SUHU_KRITIS) {
@@ -174,14 +235,12 @@ void checkSuhuKelembaban() {
   }
 }
 
-// Khusus untuk notifikasi/alert
 void KirimAlert(String pesan) {
   Serial.println("Mengirim Alert:");
   Serial.println(pesan);
   bot.sendMessage(CHAT_ID, pesan, "");
 }
 
-// Akan dijalankan tiap WAKTU_KIRIM sekali
 void KirimTelegram() {
   String msg = "Status suhu dan kelembapan di gudang saat ini:";
   msg += "\n" + Waktu();
@@ -194,7 +253,6 @@ void KirimTelegram() {
   bot.sendMessage(CHAT_ID, msg, "");
 }
 
-// Akan dijalankan tiap WAKTU_BACA sekali
 void BacaTelegram() {
   int banyakPesan = bot.getUpdates(bot.last_message_received + 1);
   
@@ -205,18 +263,15 @@ void BacaTelegram() {
   }
 }
 
-// Memproses pesan yang diterima
 void handleNewMessages(int numNewMessages) {
   for (int i = 0; i < numNewMessages; i++) {
     
-    // Cek Chat ID
     String chat_id = String(bot.messages[i].chat_id);
     if (chat_id != CHAT_ID) {
       bot.sendMessage(chat_id, "chat id anda: " + String(chat_id), "");
       continue;
     }
 
-    // Terima pesan dari telegram
     String text = bot.messages[i].text;
     Serial.println(text);
 
@@ -238,23 +293,21 @@ void handleNewMessages(int numNewMessages) {
   }
 }
 
-// Fungsi untuk mengontrol kipas (LED merah)
 void kipasControl(bool isOn) {
   if(isOn) {
-    digitalWrite(pin_merah, HIGH);  // Menyalakan kipas (LED merah)
+    digitalWrite(pin_merah, HIGH);
     status_kipas = true;
   }
   else {
-    digitalWrite(pin_merah, LOW);   // Mematikan kipas (LED merah)
+    digitalWrite(pin_merah, LOW);
     status_kipas = false;
   }
 }
 
-// Fungsi untuk mengontrol sirine (LED putih)
 void sirineControl(bool isOn) {
   if (isOn) {
-    digitalWrite(pin_putih, HIGH);  // LED putih nyala saat kondisi kritis (sebagai sirine)
+    digitalWrite(pin_putih, HIGH);
   } else {
-    digitalWrite(pin_putih, LOW);   // LED putih mati saat kondisi normal
+    digitalWrite(pin_putih, LOW);
   }
 }

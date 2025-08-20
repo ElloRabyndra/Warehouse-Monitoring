@@ -29,6 +29,10 @@ This project implements a real-time temperature and humidity monitoring system f
   - Check current temperature and humidity
   - View the status of the warehouse conditions
   - Use commands such as `/cek_ambang` to query thresholds
+- **Web Dashboard API Integration** Functions as a web server exposing API endpoints for a dedicated web dashboard. This includes:
+  - **Data Fetching**: Endpoints to get real-time sensor data and actuator status.
+  - **Remote Control**: An endpoint to send commands to the ESP32 from the dashboard.
+  - **CORS Support**: Implemented to allow secure cross-origin communication with the web dashboard.
 
 ---
 
@@ -87,3 +91,29 @@ This project is simulated using [Wokwi](https://wokwi.com/), with some adaptatio
 The Telegram bot allows you to remotely monitor warehouse conditions and trigger commands.
 > Telegram Bot Link: [@pemantauanGudangBot](https://t.me/PemantauanGudangBot).
 
+---
+### 🌐 Web Dashboard Integration
+
+This project is also designed to integrate with a dedicated web dashboard for real-time data visualization and control.
+
+* **Dashboard Repository**: The full code for the web dashboard can be found here: **[https://github.com/ElloRabyndra/Warehouse-Dashboard](https://github.com/ElloRabyndra/Warehouse-Dashboard)**.
+* **Wokwi API Endpoints**: This project exposes several API endpoints for the dashboard to consume, including:
+    * `GET /api/ping` - To check the connection status.
+    * `GET /api/status` - To get the current temperature, humidity, and actuator status data.
+    * `POST /api/command` - To send control commands to the ESP32.
+* **CORS Support**: Cross-Origin Resource Sharing (CORS) has been enabled to allow connections from a locally running web dashboard.
+
+---
+
+### ⚙️ How to Connect with the Web Dashboard (Wokwi)
+To connect this project with the web dashboard in the Wokwi simulation environment, ensure you have configured the `wokwi.toml` file with port forwarding.
+
+```toml
+[wokwi]
+version = 1
+firmware = '.pio\build\featheresp32\firmware.bin'
+elf = '.pio\build\featheresp32\firmware.elf'
+
+[[net.forward]]
+from = "localhost:8180"
+to = "target:80"
